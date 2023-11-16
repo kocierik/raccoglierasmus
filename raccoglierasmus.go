@@ -26,44 +26,75 @@ func collyError(r *colly.Response, err error) {
 	fmt.Fprintln(os.Stderr, "Request URL:", r.Request.URL, "failed with response:", r.StatusCode, "\nError:", err)
 }
 
+func generateOutput(erasmusList []Erasmus) string {
+	b := strings.Builder{}
+
+	// Inizia a costruire la stringa con intestazione
+	b.WriteString("= Elenco Erasmus\n:toc:\n\n")
+
+	// Ciclo attraverso gli elementi Erasmus
+	for _, erasmus := range erasmusList {
+		b.WriteString(fmt.Sprintf("\n== ID: %d\n", erasmus.id))
+		b.WriteString(fmt.Sprintf("* Università: %s\n", erasmus.universita))
+		b.WriteString(fmt.Sprintf("* Nazione: %s\n", erasmus.nazione))
+		b.WriteString(fmt.Sprintf("* Area disciplinare: %s\n", erasmus.areaDisciplinare))
+		b.WriteString(fmt.Sprintf("* Docente proponente: %s\n", erasmus.docente))
+		b.WriteString(fmt.Sprintf("* Posti disponibili: %d\n", erasmus.posti))
+
+		b.WriteString("* Lingue di accertamento linguistico: ")
+		for _, lingua := range erasmus.lingue {
+			b.WriteString(fmt.Sprintf("%s ", lingua))
+		}
+		b.WriteString("\n")
+	}
+
+	output := b.String()
+	// Qui potresti eventualmente eseguire alcune operazioni di sostituzione se necessario
+	// output = replaceRegexForOutput.ReplaceAllString(output, " ")
+	return output
+}
+
 func main() {
 	c := colly.NewCollector()
 
-	c.OnHTML("a[title='dettaglio offerta'][href]", func(e *colly.HTMLElement) {
-		link := e.Attr("href")
-		fmt.Println("Visiting", link)
+	erasmusList := []Erasmus{}
 
+	var headers []string
+
+	c.OnHTML("th.iceTblHeader", func(e *colly.HTMLElement) {
+		headers = append(headers, strings.TrimSpace(e.Text))
+	})
+
+	c.OnHTML("tr.rigaPari, tr.rigaDispari", func(e *colly.HTMLElement) {
 		erasmus := Erasmus{}
-		erasmus.id = // Assign a unique ID for each entry, you can use a counter or another method
 
-			e.Request.Visit(link)
-		c.OnHTML("div.rigaPari, div.rigaDispari", func(e *colly.HTMLElement) {
-			text := strings.TrimSpace(e.Text)
-			parts := strings.Split(text, ":")
+		e.ForEach("td.colonna", func(i int, td *colly.HTMLElement) {
+			text := strings.TrimSpace(td.Text)
+			text = strings.ReplaceAll(text, "\u00a0", "")
 
-			if len(parts) != 2 {
-				return
-			}
+			header := headers[i]
 
-			key := strings.TrimSpace(parts[0])
-			value := strings.TrimSpace(parts[1])
-
-			switch key {
+			switch header {
+			case "Id":
+				id, err := strconv.Atoi(text)
+				if err == nil {
+					erasmus.id = id
+				}
 			case "Università":
-				erasmus.universita = value
+				erasmus.universita = text
 			case "Nazione":
-				erasmus.nazione = value
+				erasmus.nazione = text
 			case "Area disciplinare":
-				erasmus.areaDisciplinare = value
-			case "Docente":
-				erasmus.docente = value
-			case "Posti":
-				posti, err := strconv.Atoi(value)
+				erasmus.areaDisciplinare = text
+			case "Docente proponente":
+				erasmus.docente = text
+			case "Posti disponibili":
+				posti, err := strconv.Atoi(text)
 				if err == nil {
 					erasmus.posti = posti
 				}
-			case "Lingue":
-				lingue := strings.Split(value, ",")
+			case "Lingue di accertamento linguistico":
+				lingue := strings.Split(text, "\n")
 				for i := range lingue {
 					lingue[i] = strings.TrimSpace(lingue[i])
 				}
@@ -71,7 +102,7 @@ func main() {
 			}
 		})
 
-		// Do something with the populated Erasmus struct here
+		erasmusList = append(erasmusList, erasmus)
 	})
 
 	c.OnRequest(func(r *colly.Request) {
@@ -81,5 +112,12 @@ func main() {
 	c.OnError(collyError)
 
 	c.Visit(erasmusUrl)
-}
 
+	fmt.Println("Collected Erasmus Data:")
+	for _, erasmus := range erasmusList {
+		fmt.Printf("%+v\n", erasmus)
+	}
+
+	output := generateOutput(erasmusList)
+	fmt.Println(output)
+}
